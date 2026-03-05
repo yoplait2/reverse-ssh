@@ -55,6 +55,10 @@ Compiling additionally requires the following:
 Once `reverse-ssh` is running on the victim, you can connect with any username and the default password `letmeinbrudipls`, the ssh key or whatever you specified during compilation.
 After all, it is just an ssh server:
 
+> **Note:** When compiled with `make`, a random password is generated automatically.
+> Run `./reverse-ssh -v -l` (or check the build output) to discover the generated password,
+> or set `RS_PASS` explicitly at compile time.
+
 ```
 # Fully interactive shell access
 $ ssh -p <RPORT> <RHOST>
@@ -119,7 +123,7 @@ Host target
 ### Full usage
 
 ```
-reverseSSH v1.2.0  Copyright (C) 2021  Ferdinor <ferdinor@mailbox.org>
+reverseSSH v1.3.0  Copyright (C) 2021  Ferdinor <ferdinor@mailbox.org>
 
 Usage: reverse-ssh [options] [[<user>@]<target>]
 
@@ -174,7 +178,7 @@ $ make compressed
 You can also specify one or more of the following environmental variables when compiling to customize ReverseSSH to your use case:
 
 * `RS_SHELL` to change the default shell
-* `RS_PASS` to provide your personalized password
+* `RS_PASS` to provide a custom password (if unset, `make` generates a random password each build)
 * `RS_PUB` to provide your personalized an authorized key
 * `LUSER` to change the default username of the ssh connection attempt
 * `LHOST` to provide a default LHOST value and make **ReverseSSH default to the reverse scenario**

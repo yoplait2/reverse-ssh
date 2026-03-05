@@ -24,6 +24,14 @@ import (
 	"github.com/gliderlabs/ssh"
 )
 
+// createSSHSessionHandler returns an ssh.Handler that manages interactive
+// sessions for incoming connections. It handles three cases:
+//   - PTY request: spawns the configured shell inside a pseudo-terminal via
+//     createPty, providing full interactive access.
+//   - Command execution: runs the requested command with its stdout/stderr
+//     forwarded to the session and stdin read from it.
+//   - No PTY, no command: keeps the session open to support port-forwarding
+//     use cases, and waits until the context is cancelled.
 func createSSHSessionHandler(shell string) ssh.Handler {
 	return func(s ssh.Session) {
 		log.Printf("New login from %s@%s", s.User(), s.RemoteAddr().String())
