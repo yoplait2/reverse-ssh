@@ -20,17 +20,20 @@ import (
 	"github.com/gliderlabs/ssh"
 )
 
-// The following variables can be set via ldflags
+// The following variables can be customised at compile time via -ldflags
+// (see Makefile and build documentation). When built with `make`, RS_PASS
+// defaults to a random hex string; all other variables fall back to the
+// values shown here.
 var (
-	localPassword = "letmeinbrudipls"
-	authorizedKey = ""
-	defaultShell  = "/bin/bash"
+	localPassword = "letmeinbrudipls" // password accepted for incoming SSH connections
+	authorizedKey = ""                // authorized public key (empty = pubkey auth disabled)
+	defaultShell  = "/bin/bash"       // shell spawned for interactive sessions
 	version       = "1.3.0-dev"
-	LUSER         = "reverse"
-	LHOST         = ""
-	LPORT         = "31337"
-	BPORT         = "8888"
-	NOCLI         = ""
+	LUSER         = "reverse"  // username used when dialling home
+	LHOST         = ""         // default target host (empty = bind/listen mode)
+	LPORT         = "31337"    // listening port (bind) or target port (reverse)
+	BPORT         = "8888"     // port bound on attacker side for reverse connections
+	NOCLI         = ""         // non-empty value disables all CLI flag parsing
 )
 
 func main() {

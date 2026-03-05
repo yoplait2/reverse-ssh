@@ -31,6 +31,16 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// createPty provides a fully interactive shell for the given SSH session on
+// Windows. It selects one of two strategies depending on the OS version:
+//
+//   - Windows 10 Build 17763 and later: uses the Windows Pseudo Console (ConPTY)
+//     API to spawn PowerShell with full virtual-terminal support.
+//
+//   - Earlier Windows versions: falls back to ssh-shellhost.exe (from
+//     Win32-OpenSSH) if a custom shell path was supplied via the -s flag.
+//     Without a custom shell it writes an informational message and exits,
+//     directing the user to append 'cmd' to their SSH command instead.
 func createPty(s ssh.Session, shell string) {
 	ptyReq, winCh, _ := s.Pty()
 	vsn := windows.RtlGetVersion()

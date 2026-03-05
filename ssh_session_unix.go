@@ -30,6 +30,11 @@ import (
 	"github.com/gliderlabs/ssh"
 )
 
+// createPty starts the configured shell inside a Unix pseudo-terminal (PTY)
+// for the given SSH session. It sets TERM and HOME environment variables,
+// handles terminal window-resize events, and bidirectionally pipes data
+// between the PTY and the SSH session until either the shell exits or the
+// session context is cancelled.
 func createPty(s ssh.Session, shell string) {
 	var (
 		ptyReq, winCh, _ = s.Pty()
